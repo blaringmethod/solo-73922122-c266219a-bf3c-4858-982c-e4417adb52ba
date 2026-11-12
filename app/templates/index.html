@@ -14,7 +14,17 @@
 
 <main>
   {% if error %}
-  <div class="banner error"><strong>输入错误：</strong>{{ error }}</div>
+  <div class="banner error" role="alert">
+    <strong>
+      {% if error_code == "413" %}请求被拒绝（413 负载过大）：
+      {% elif error_code == "503" %}请求被拒绝（503 暂存资源不足）：
+      {% elif error_code == "400" %}输入错误：
+      {% else %}输入错误：{% endif %}
+    </strong>
+    {{ error }}
+    {% if error_code == "503" %}<p class="hint">这是全站共享的在途正文预算暂时占满，稍后重试即可；本页面不会保留任何旧诊断结论。</p>
+    {% elif error_code == "413" %}<p class="hint">请压缩或拆分上传内容后重试；本页面不会保留任何旧诊断结论。</p>{% endif %}
+  </div>
   {% endif %}
 
   <section class="card">
@@ -45,6 +55,12 @@
       </label>
     </div>
     <p class="hint">三类输入去重后总计不得超过 12 张证书。全部计算在本机离线完成，不上传任何外部服务。</p>
+    <p class="hint limits">
+      上传限额：单个请求完整 multipart 正文（含表单字段与边界开销）最多
+      {{ (per_request_limit / 1024 / 1024) | round(2) }} MiB，超出返回 413；
+      两个 Web 进程共享 {{ (total_budget / 1024 / 1024) | round(2) }} MiB
+      在途正文预算，预算不足时立即返回 503（不排队）。
+    </p>
     <button type="submit" class="btn primary">开始诊断</button>
   </form>
 </main>

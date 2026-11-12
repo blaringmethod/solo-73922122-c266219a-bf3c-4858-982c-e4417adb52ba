@@ -7,18 +7,17 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install dependencies first for better layer caching.
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir \
-    "fastapi>=0.110" \
-    "uvicorn[standard]>=0.29" \
-    "jinja2>=3.1" \
-    "python-multipart>=0.0.9" \
-    "cryptography>=42.0"
+COPY pyproject.toml requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
 # Runs as an unprivileged user; no outbound network is needed at runtime.
-RUN useradd --create-home --uid 10001 appuser
+# /data holds the SQLite budget DB, heartbeat files and upload staging; it is
+# mounted as a shared named volume by both web processes.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /data/budget /data/staging \
+    && chown -R appuser:appuser /data
 USER appuser
 
 EXPOSE 8080

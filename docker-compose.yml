@@ -1,12 +1,18 @@
 services:
-  mtls-chain-doctor:
+  web1:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mtls-chain-doctor:1.0.0
-    container_name: mtls-chain-doctor
-    ports:
-      - "127.0.0.1:8080:8080"
+    image: mtls-chain-doctor:1.1.0
+    environment:
+      WORKER_NAME: web1
+      APP_DATA_DIR: /data
+      BUDGET_DB: /data/budget/budget.db
+      STAGING_DIR: /data/staging
+      TOTAL_BUDGET: "4194304"        # 4 MiB shared in-flight body budget
+      PER_REQUEST_LIMIT: "2097152"   # 2 MiB per full multipart body
+    volumes:
+      - mtls-data:/data
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -17,6 +23,72 @@ services:
       - ALL
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/', timeout=4).status==200 else 1)"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 5
+
+  web2:
+    image: mtls-chain-doctor:1.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      WORKER_NAME: web2
+      APP_DATA_DIR: /data
+      BUDGET_DB: /data/budget/budget.db
+      STAGING_DIR: /data/staging
+      TOTAL_BUDGET: "4194304"
+      PER_REQUEST_LIMIT: "2097152"
+    volumes:
+      - mtls-data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      - web1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m
+      - /var/run:size=8m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+      - DAC_OVERRIDE
+    depends_on:
+      - web1
+      - web2
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+# SQLite budget DB, heartbeat files and per-request upload staging. Both web
+# processes mount this one volume so they coordinate through a single DB and
+# can see (and reap) each other's staging directories.
+volumes:
+  mtls-data:
